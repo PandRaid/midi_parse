@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include "midi.h"
 
 ////////////////////////////////////////////////////////////////////////////
@@ -13,6 +14,7 @@
 ////////////////////////////////////////////////////////////////////////////
 #define FILE_NOT_FOUND          -1
 #define BAD_HEADER              -2
+#define BAD_READ                -3
 
 ////////////////////////////////////////////////////////////////////////////
 ///////////////           Standard Defines         /////////////////////////
@@ -40,10 +42,12 @@ int main(){
     size_t file_len = fread(midi_buffered, sizeof(char), MAX_MIDI_SIZE, midi_handle);
     if (ferror(midi_handle) != 0){
       fprintf(stderr, "Error reading %s", FILE_NAME);
+      return BAD_READ;
     }
     else{
       midi_buffered[file_len++] = '\0';
     }
+    parse_midi_buffer(midi_handle);
     fclose(midi_handle);
     print_buffer_string(midi_buffered, MAX_MIDI_SIZE);
   }
@@ -57,4 +61,32 @@ void print_buffer_string(char* str, uint32_t len){
   for(int i=0; i<len; i++){
     fprintf(stderr, "%c", str[i]);
   }
+}
+
+uint32_t get_word(const char* midi_buffered, uint32_t* offset){
+  uint32_t word = ((const int*) midi_buffered)[*offset];
+  (*offset) += 4;
+  return word;
+}
+
+uint32_t get_event_length(const char* midi_file, uint32_t* file_offset){
+  bool length_parsing = true;
+  uint32_t event_length = 0;
+
+  while(length_parsing){
+    uint32_t variable_len = midi_file[*file_offset];
+  
+    if (variable_len <= 80){
+      length_parsing = false;
+    }
+
+    event_length = (event_length << 7) | (variable_len & 0x7f);
+    (*file_offset)++;
+  }
+
+  return event_length;
+}
+
+uint8_t parse_midi_buffer(FILE* midi_handle){
+
 }
