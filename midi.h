@@ -11,7 +11,7 @@ uint64_t get_event_length(uint32_t* offset);
 uint8_t parse_midi_buffer();
 void parse_meta_event(uint32_t* offset);
 void parse_sys_event(uint32_t* offset);
-void parse_midi_event(uint32_t* offset, uint8_t type, uint64_t time);
+void parse_midi_event(uint32_t* offset, uint8_t type);
 
 typedef struct header {
   uint16_t format;
@@ -26,9 +26,10 @@ typedef struct track {
 }track;
 
 typedef struct note {
-  uint64_t time;
+  float time;
   int key;
   uint8_t dir;
+  uint8_t hand;
 }note;
 
 char * key_decode[128] = {

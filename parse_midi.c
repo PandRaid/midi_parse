@@ -36,13 +36,15 @@
 ////////////////////////////////////////////////////////////////////////////
 
 uint32_t file_len;
+float ticks_per_qn = 0;
 char song_name[MAX_SONG_NAME];
 char midi_buffered[MAX_MIDI_SIZE];
+uint64_t run_time=0;
 
-note left_hand[1024];
-note right_hand[1024];
-uint32_t left_count;
-uint32_t right_count;
+note hands[4096];
+
+uint32_t cnt_on = 0;
+uint32_t cnt_off = 0;
 
 int main(){
   FILE* midi_handle;
@@ -75,14 +77,12 @@ int main(){
 
   int i;
 
-  /*
-  for(i=0; i < right_count; i++){
-    printf("R: %s\n", key_decode[(right_hand[i]).key]);
+  printf("Cnt on %d\n", cnt_on);
+  printf("Cnt off %d\n", cnt_off);
+
+  for(i=0; i < (cnt_on + cnt_off - 2); i++){
+    printf("N: %s, T: %f, D: %d\n", key_decode[(hands[i]).key], hands[i].time, hands[i].dir);
   }
-  for(i=0; i < left_count; i++){
-    printf("L: %s\n", key_decode[(left_hand[i]).key]);
-  }
-  */
 }
 
 void print_buffer_string(char* str, uint32_t len){
@@ -94,14 +94,15 @@ void print_buffer_string(char* str, uint32_t len){
 // Function for getting 32 bits of data from a buffered midi file
 // the offset into the buffer is updated and the word is returned
 uint32_t get_word(uint32_t* offset){
-  uint32_t word = (midi_buffered[(*offset)] << 24) | (midi_buffered[(*offset)+1] << 16) | (midi_buffered[(*offset)+2] << 8) | midi_buffered[(*offset)+3];
+  uint32_t word = ((uint8_t) midi_buffered[(*offset)] << 24) | ((uint8_t) midi_buffered[(*offset)+1] << 16) | ((uint8_t) midi_buffered[(*offset)+2] << 8) | ((uint8_t) midi_buffered[(*offset)+3]);
+
 
   (*offset) += 4;
   return word;
 }
 
 uint16_t get_half_word(uint32_t* offset){
-  uint16_t half = (midi_buffered[(*offset)] << 8) | midi_buffered[(*offset)+1];
+  uint16_t half = ((uint8_t) midi_buffered[(*offset)] << 8) | ((uint8_t) midi_buffered[(*offset)+1]);
   (*offset) += 2;
   return half;
 }
@@ -145,6 +146,10 @@ uint8_t parse_midi_buffer(){
   hdr.tracks = get_half_word(&offset);
   hdr.div = get_half_word(&offset);
 
+  if (!(hdr.div & 0x8000)){
+    ticks_per_qn = hdr.div & 0x7FFF;
+  }
+
   track tracks[16] = {0};
   uint8_t find_pos = 1;
   uint32_t tmp_offset = offset;
@@ -175,7 +180,8 @@ uint8_t parse_midi_buffer(){
     printf("Parsing Track %d, len %d\n", i, tracks[i].len);
     tmp_offset = tracks[i].pos + 4;
     while(tmp_offset < (tracks[i].len + tracks[i].pos)){
-      uint64_t event_len = get_event_length(&tmp_offset);
+      run_time += get_event_length(&tmp_offset);
+
       uint8_t dat = midi_buffered[tmp_offset];
       tmp_offset++;
 
@@ -186,7 +192,7 @@ uint8_t parse_midi_buffer(){
         parse_sys_event(&tmp_offset);
       }
       else{
-        parse_midi_event(&tmp_offset, dat, event_len);
+        parse_midi_event(&tmp_offset, dat);
       }
     }
   }
@@ -262,32 +268,36 @@ void parse_sys_event(uint32_t* offset){
   (*offset) += len;
 }
 
-void parse_midi_event(uint32_t* offset, uint8_t type, uint64_t time){
+void parse_midi_event(uint32_t* offset, uint8_t type){
   int len = 0;
+  static int temp_time = 0;
+
+  if (!temp_time) {
+    temp_time = run_time;
+  }
+  int dif = temp_time - run_time;
+  temp_time = run_time;
 
   switch (type & 0xF0){
     case 0x80:
       len = 2;
       int key_off = midi_buffered[*offset];
+      hands[cnt_on + cnt_off].time = dif/ticks_per_qn;
+      hands[cnt_on + cnt_off].dir = 0; 
+      hands[cnt_on + cnt_off].key = key_off;
+      hands[cnt_on + cnt_off].hand = key_off > 60 ? 1 : 2;
+
+      cnt_off++;
       break;
     case 0x90:
       len = 2;
       int key = midi_buffered[*offset];
+      hands[cnt_on + cnt_off].time = dif/ticks_per_qn;
+      hands[cnt_on + cnt_off].dir = 1; 
+      hands[cnt_on + cnt_off].key = key;
+      hands[cnt_on + cnt_off].hand = key > 60 ? 1 : 2;
 
-      if (key >= 60){
-        right_hand[right_count].time = time;
-        right_hand[right_count].dir = 1;
-        right_hand[right_count].key = key;
-        right_count++;
-        printf("Right %s\n", key_decode[key]);
-      }
-      else{
-        left_hand[left_count].time = time;
-        left_hand[left_count].dir = 1;
-        left_hand[left_count].key = key;
-        left_count++;
-        printf("Left %s\n", key_decode[key]);
-      }
+      cnt_on++;
       break;
     case 0xA0:
       len = 2;
